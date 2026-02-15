@@ -1,0 +1,6 @@
+[Process] Spawned: notepad.exe Parent: explorer.exe
+[File] Open C:\Users\Student\notes.txt
+[File] Read C:\Users\Student\notes.txt
+[DLL] Load user32.dll
+[DLL] Load gdi32.dll
+[Thread] WorkerThread created
