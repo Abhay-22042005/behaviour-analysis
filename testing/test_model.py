@@ -1,109 +1,96 @@
-import re
 import joblib
-import numpy as np
-from pathlib import Path
+import pandas as pd
+
+MODEL_FEATURES = [
+    "file_activity",
+    "registry_activity",
+    "process_thread_ratio",
+    "dll_per_process",
+    "path_suspicion",
+    "activity_score"
+]
 
 
-# ---------------------------
-# Feature Extraction Engine
-# ---------------------------
+def extract_features_from_log(file_path):
 
-class SandboxFeatureExtractor:
+    file_create = file_read = file_write = 0
+    reg_create = reg_set = 0
+    process_create = thread_create = 0
+    dll_load = 0
+    paths = set()
 
-    def __init__(self):
-        self.reset()
+    with open(file_path, "r", errors="ignore") as f:
+        for line in f:
+            l = line.lower()
 
-    def reset(self):
-        self.features = {
-            "file_ops": 0,
-            "registry_ops": 0,
-            "network_ops": 0,
-            "process_spawns": 0,
-            "dll_loads": 0,
-            "thread_events": 0,
-            "hidden_files": 0,
-            "suspicious_ports": 0,
-            "powershell_exec": 0,
-            "code_injection": 0
-        }
+            if "[file]" in l and "create" in l:
+                file_create += 1
+            if "[file]" in l and "read" in l:
+                file_read += 1
+            if "[file]" in l and "write" in l:
+                file_write += 1
 
-    def parse_line(self, line: str):
+            if "[registry]" in l and "create" in l:
+                reg_create += 1
+            if "[registry]" in l and ("set" in l or "modify" in l):
+                reg_set += 1
 
-        line = line.strip().lower()
+            if "[process]" in l:
+                process_create += 1
+            if "[thread]" in l:
+                thread_create += 1
 
-        if "[file]" in line:
-            self.features["file_ops"] += 1
-            if "hidden" in line:
-                self.features["hidden_files"] += 1
+            if "[dll]" in l:
+                dll_load += 1
 
-        elif "[registry]" in line:
-            self.features["registry_ops"] += 1
+            if ":" in l and "\\" in l:
+                paths.add(l.strip())
 
-        elif "[network]" in line:
-            self.features["network_ops"] += 1
-            if re.search(r":(4444|5555|8080|1337)", line):
-                self.features["suspicious_ports"] += 1
+    # ---- NORMALIZED BEHAVIOR FEATURES ----
+    file_activity = (file_create + file_read + file_write) * 5
+    registry_activity = (reg_create + reg_set) * 8
 
-        elif "[process]" in line:
-            self.features["process_spawns"] += 1
-            if "powershell" in line:
-                self.features["powershell_exec"] += 1
+    process_thread_ratio = (thread_create + 1) / (process_create + 1)
+    dll_per_process = (dll_load + 1) / (process_create + 1)
 
-        elif "[dll]" in line:
-            self.features["dll_loads"] += 1
+    path_suspicion = len(paths) * 6
 
-        elif "[thread]" in line:
-            self.features["thread_events"] += 1
-            if "inject" in line or "remote" in line:
-                self.features["code_injection"] += 1
+    activity_score = (
+        file_activity
+        + registry_activity
+        + dll_load * 10
+        + thread_create * 8
+    )
 
-    def extract(self, file_path):
+    features = pd.DataFrame([{
+        "file_activity": file_activity,
+        "registry_activity": registry_activity,
+        "process_thread_ratio": process_thread_ratio,
+        "dll_per_process": dll_per_process,
+        "path_suspicion": path_suspicion,
+        "activity_score": activity_score
+    }])
 
-        self.reset()
-
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                self.parse_line(line)
-
-        return np.array([list(self.features.values())])
-
-
-# ---------------------------
-# Prediction Engine
-# ---------------------------
-
-class MalwarePredictor:
-
-    def __init__(self):
-        self.model = joblib.load("model/random_forest.pkl")
-        self.scaler = joblib.load("model/scaler.pkl")
-        self.extractor = SandboxFeatureExtractor()
-
-    def predict(self, log_file):
-
-        features = self.extractor.extract(log_file)
-        scaled = self.scaler.transform(features)
-
-        prediction = self.model.predict(scaled)[0]
-        probability = self.model.predict_proba(scaled)[0][1]
-
-        print("\n===== ANALYSIS RESULT =====")
-        print(f"Log File: {log_file}")
-        print(f"Malware Probability: {probability:.2f}")
-
-        if prediction == 1:
-            print("⚠ RESULT: MALWARE BEHAVIOR DETECTED")
-        else:
-            print("✓ RESULT: BENIGN BEHAVIOR")
+    return features
 
 
-# ---------------------------
-# Runner
-# ---------------------------
+def predict(log_file):
+
+    print(f"\nAnalyzing: {log_file}")
+
+    model = joblib.load("model/random_forest.pkl")
+    scaler = joblib.load("model/scaler.pkl")
+
+    features = extract_features_from_log(log_file)
+
+    scaled = scaler.transform(features[MODEL_FEATURES])
+    pred = model.predict(scaled)[0]
+
+    if pred == 1:
+        print("⚠ MALWARE DETECTED")
+    else:
+        print("✓ BENIGN FILE")
+
 
 if __name__ == "__main__":
-
-    log_path = Path("sandbox_logs/sample_malware_log.txt")
-
-    predictor = MalwarePredictor()
-    predictor.predict(log_path)
+    predict("sandbox_logs/sample_malware_log.txt")
