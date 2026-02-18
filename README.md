@@ -238,9 +238,7 @@ pip install -r requirements.txt
 
 
 
-yaml
 
-Copy code
 
 
 
@@ -294,9 +292,7 @@ python testing/test\_model.py
 
 
 
-makefile
 
-Copy code
 
 
 
@@ -305,10 +301,6 @@ Output:
 MALWARE DETECTED
 
 
-
-python
-
-Copy code
 
 or
 
